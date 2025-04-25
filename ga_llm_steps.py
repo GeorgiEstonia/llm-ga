@@ -12,7 +12,7 @@ import json
 from typing import Dict, Any, Optional
 
 from dotenv import load_dotenv
-from openai import OpenAI, AssistantEventHandler # Import OpenAI client
+from openai import OpenAI # Import OpenAI client
 from langchain_openai import ChatOpenAI # Still needed for population generation
 from langchain_anthropic import ChatAnthropic
 from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
