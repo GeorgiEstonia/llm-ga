@@ -12,8 +12,16 @@ import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-# Configure logging
-logger = logging.getLogger("prompt-cache")
+# Setup logging
+logger = logging.getLogger("llm_ga")
+logger.setLevel(logging.DEBUG)
+
+# Remove file handler to prevent creating ga_optimization.log
+# Add file handler if not already added
+# if not any(isinstance(handler, logging.FileHandler) for handler in logger.handlers):
+#     file_handler = logging.FileHandler("ga_optimization.log")
+#     file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+#     logger.addHandler(file_handler)
 
 class PromptCache:
     """Cache for optimized prompts with persistence"""
@@ -30,6 +38,7 @@ class PromptCache:
         
         # Create cache directory if it doesn't exist
         os.makedirs(self.cache_dir, exist_ok=True)
+        logger.info(f"PromptCache initialized with cache directory: {self.cache_dir}")
         
         # Load existing cache from disk
         self._load_cache()
@@ -42,18 +51,30 @@ class PromptCache:
     
     def _load_cache(self):
         """Load all cached prompts from disk"""
+        start_time = time.time()
+        loaded_count = 0
+        error_count = 0
+        
         try:
             # Look for all JSON files in the cache directory
-            for file in self.cache_dir.glob("*.json"):
+            cache_files = list(self.cache_dir.glob("*.json"))
+            logger.info(f"Found {len(cache_files)} cache files to load")
+            
+            for file in cache_files:
                 try:
                     with open(file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                         if "tone_style" in data and "prompt" in data:
                             tone_style = data["tone_style"]
                             self.cache[tone_style] = data
-                            logger.info(f"Loaded cached prompt for '{tone_style}'")
+                            loaded_count += 1
+                            logger.debug(f"Loaded cached prompt for '{tone_style}' ({len(data['prompt'])} chars)")
                 except Exception as e:
+                    error_count += 1
                     logger.warning(f"Failed to load cache file {file}: {e}")
+            
+            load_time = time.time() - start_time
+            logger.info(f"Cache loading completed: {loaded_count} prompts loaded, {error_count} errors, took {load_time:.3f}s")
         except Exception as e:
             logger.error(f"Error loading cache: {e}")
     
@@ -67,7 +88,12 @@ class PromptCache:
             Dict with prompt data or None if not found
         """
         with self.lock:
-            return self.cache.get(tone_style)
+            result = self.cache.get(tone_style)
+            if result:
+                logger.info(f"Cache HIT for '{tone_style}'")
+            else:
+                logger.info(f"Cache MISS for '{tone_style}'")
+            return result
     
     def save(self, tone_style: str, prompt_data: Dict[str, Any]):
         """Save a prompt to the cache
@@ -77,6 +103,7 @@ class PromptCache:
             prompt_data: Dict containing at least 'prompt' and other metadata
         """
         if "prompt" not in prompt_data:
+            logger.error(f"Cannot save prompt for '{tone_style}': missing 'prompt' field")
             raise ValueError("prompt_data must contain 'prompt' field")
         
         # Add timestamp and tone_style if not present
@@ -85,16 +112,22 @@ class PromptCache:
         if "tone_style" not in prompt_data:
             prompt_data["tone_style"] = tone_style
         
+        prompt_length = len(prompt_data["prompt"])
+        fitness_score = prompt_data.get("fitness_score", "N/A")
+        generation = prompt_data.get("generation", "N/A")
+        
         with self.lock:
             # Update memory cache
             self.cache[tone_style] = prompt_data
             
             # Save to disk
             cache_file = self._get_cache_file(tone_style)
+            save_start = time.time()
             try:
                 with open(cache_file, "w", encoding="utf-8") as f:
                     json.dump(prompt_data, f, ensure_ascii=False, indent=2)
-                logger.info(f"Saved prompt for '{tone_style}' to cache")
+                save_time = time.time() - save_start
+                logger.info(f"Saved prompt for '{tone_style}' to cache: {prompt_length} chars, score={fitness_score}, gen={generation}, took {save_time:.3f}s")
             except Exception as e:
                 logger.error(f"Failed to save prompt cache for '{tone_style}': {e}")
     
@@ -116,13 +149,20 @@ class PromptCache:
                             logger.info(f"Cleared cache for '{tone_style}'")
                         except Exception as e:
                             logger.error(f"Failed to delete cache file for '{tone_style}': {e}")
+                    else:
+                        logger.warning(f"Cache file for '{tone_style}' not found on disk when attempting to clear")
+                else:
+                    logger.warning(f"Attempted to clear non-existent cache entry: '{tone_style}'")
             else:
                 # Clear all
+                cache_size = len(self.cache)
                 self.cache.clear()
                 try:
+                    file_count = 0
                     for file in self.cache_dir.glob("*.json"):
                         file.unlink()
-                    logger.info("Cleared entire prompt cache")
+                        file_count += 1
+                    logger.info(f"Cleared entire prompt cache: {cache_size} entries in memory, {file_count} files removed")
                 except Exception as e:
                     logger.error(f"Failed to clear cache directory: {e}")
     
@@ -133,12 +173,14 @@ class PromptCache:
             Dict mapping tone styles to metadata
         """
         with self.lock:
-            # Return a copy to avoid thread safety issues
-            return {k: {
+            result = {k: {
                 "timestamp": v.get("timestamp", 0),
                 "fitness_score": v.get("fitness_score", 0),
                 "generation": v.get("generation", 0)
             } for k, v in self.cache.items()}
+            
+            logger.info(f"Listed {len(result)} cached tone styles")
+            return result
 
 # Global instance
 prompt_cache = PromptCache() 

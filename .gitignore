@@ -102,7 +102,6 @@ celerybeat.pid
 .env
 .venv
 venv/
-env/
 ENV/
 env.bak/
 venv.bak/
@@ -135,4 +134,24 @@ cython_debug/
 .vscode/
 
 # Local secrets
-secrets.yaml 
+secrets.yaml
+
+# New additions from the code block
+env/
+build/
+develop-eggs/
+parts/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.env
+.venv
+venv/
+ENV/
+.DS_Store
+*.log
+.idea/
+.vscode/
+cache/ 
